@@ -18,12 +18,53 @@ The input history follows the competition hierarchy:
 
 Table tennis and badminton therefore use Shot -> Rally -> Set, while tennis uses Shot -> Rally -> Game -> Set.
 
+The prediction tasks depend on the sport configuration:
+
+| Sport | Prediction tasks |
+| :--- | :--- |
+| Table tennis | `type`, `backhand`, `location`, `strength`, `spin` |
+| Badminton | `type`, `backhand`, `landing_area` |
+| Tennis | `type`, `backhand`, `location`, `spin` |
+
 Final MT-HTA contains two parallel encoding paths:
 
 1. **Hierarchical Transformer path:** encodes shot, rally, and set context; tennis additionally includes the game level.
 2. **Feature-token iTransformer path:** treats each semantic field as one token. Each field is first projected along its valid, padding-aware temporal axis, after which self-attention models interactions among feature tokens such as type, location, spin, and score.
 
-The two paths are combined at each hierarchy level through sigmoid-gated fusion. The final configuration also uses shot-aware positional encoding, top-down attention, turn-based player-role routing, and a one-shot gated skip connection. Task Attention Fusion learns an independent query for each prediction task and retrieves task-specific information from hierarchy summaries and hitter/opponent representations.
+By default, the two path summaries are concatenated and reduced by a linear projection at each hierarchy level. The reported Final configuration enables `--use_gated_fusion` to replace this with sigmoid-gated fusion. It also uses shot-aware positional encoding, top-down attention, turn-based player-role routing, and a one-shot gated skip connection. Task Attention Fusion learns an independent query for each prediction task and retrieves task-specific information from hierarchy summaries and hitter/opponent representations.
+
+## Final MT-HTA Auxiliary Components
+
+The reported Final MT-HTA configuration uses five opt-in components on top of the dual-path, task-attention core. They can be enabled independently with the following training options:
+
+| Component | Purpose | Training option |
+| :--- | :--- | :--- |
+| Shot-Aware Positional Encoding | Adds serve-position and player-role information to L1 shot tokens. | `--use_shot_aware_pe` |
+| Gated Dual-Path Fusion | Learns how much information to use from the hierarchical Transformer and feature-token iTransformer at each level. | `--use_gated_fusion` |
+| Top-Down Refinement | Uses the highest-level match context to refine the current-rally shot summary. | `--use_top_down_attention` |
+| Turn-Based Style Gating | Routes player embeddings as the next hitter and receiver before task fusion. | `--use_turn_based_gating` |
+| One-Shot Gated Skip Connection | Gives each prediction task direct access to the most recent observed shot. | `--skip_window_size 1` or `--use_skip_connection` |
+
+Selecting `task_attention_itransformer_feature_token` does not enable these components automatically. To enable the complete Final MT-HTA configuration, run:
+
+```bat
+python scripts/train_location_loss.py --sport table_tennis --model_type task_attention_itransformer_feature_token --d_model 256 --skip_window_size 1 --use_shot_aware_pe --use_gated_fusion --use_top_down_attention --use_turn_based_gating --seed 42
+```
+
+The equivalent YAML settings are:
+
+```yaml
+training_args:
+  skip_window_size: 1
+  use_shot_aware_pe: true
+  use_gated_fusion: true
+  use_top_down_attention: true
+  use_turn_based_gating: true
+```
+
+The flags may be omitted or combined to run component ablations, and the same options are accepted by `scripts/run_all_models.py`. Use the dual-path `task_attention_itransformer_feature_token` model for the complete configuration.
+
+Additional experimental controls, which are not part of the reported Final configuration, include `--pooling_type` (`last`, `mean`, or `attention`), `--use_temporal_scale_gating`, `--use_task_decoder`, `--use_rlw`, and the `sequence_attention` model variant.
 
 ## Results
 
@@ -76,35 +117,15 @@ python -c "import torch; print(torch.__version__, torch.cuda.is_available())"
 
 The available CSV files and their intended uses are listed in [data/README.md](data/README.md). Processed files must be generated before training.
 
-Original table tennis, used for the main experiments:
+Use the matching preprocessing command and `--sport` value for each dataset variant:
 
-```bat
-python preprocessing/TableTennis_preprocess.py
-```
+| Dataset variant | Preprocessing command | Training selection |
+| :--- | :--- | :--- |
+| Original table tennis | `python preprocessing/TableTennis_preprocess.py --variant original` | `--sport table_tennis` |
+| Expanded table tennis | `python preprocessing/TableTennis_preprocess.py --variant all` | `--sport table_tennis_all` |
+| Combined badminton | `python preprocessing/Badminton_preprocess.py --variant all` | `--sport badminton_all` |
+| Tennis Top100 | `python preprocessing/Tennis_preprocess.py --variant top100` | `--sport tennis` |
 
-Expanded table tennis:
-
-```bat
-python preprocessing/TableTennis_preprocess.py --variant all
-```
-
-Combined badminton, used for the main cross-sport experiments:
-
-```bat
-python preprocessing/Badminton_preprocess.py
-```
-
-Original badminton supplementary variant:
-
-```bat
-python preprocessing/Badminton_preprocess.py --variant original
-```
-
-Tennis Top100, used for the main cross-sport experiments:
-
-```bat
-python preprocessing/Tennis_preprocess.py
-```
 
 All preprocessing entry points support dataset-specific `--variant` choices and the following common options:
 
