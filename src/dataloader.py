@@ -23,7 +23,7 @@ class PACTDataset(Dataset):
         super().__init__()
         with open(data_path, 'rb') as f:
             self.all_matches = pickle.load(f)
-        with open(config_path, 'r') as f:
+        with open(config_path, 'r', encoding='utf-8') as f:
             self.config = json.load(f)
 
         features = self.config['features_to_extract']
